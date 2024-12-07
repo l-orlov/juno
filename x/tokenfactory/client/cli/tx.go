@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,9 @@ import (
 
 	"github.com/CosmosContracts/juno/v25/x/tokenfactory/types"
 )
+
+// shortAmountRegex - regex to validate the format "1000mytoken" (number + letters)
+var shortAmountRegex = regexp.MustCompile(`^\d+[a-zA-Z]+$`)
 
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
@@ -91,7 +95,14 @@ func NewMintCmd() *cobra.Command {
 
 			txf = txf.WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
-			amount, err := sdk.ParseCoinNormalized(args[0])
+			amountArg := args[0]
+			// Validate and convert the amount format
+			amountStr, err := resolveAmount(amountArg, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			amount, err := sdk.ParseCoinNormalized(amountStr)
 			if err != nil {
 				return err
 			}
@@ -132,7 +143,14 @@ func NewMintToCmd() *cobra.Command {
 				return err
 			}
 
-			amount, err := sdk.ParseCoinNormalized(args[1])
+			amountArg := args[1]
+			// Validate and convert the amount format
+			amountStr, err := resolveAmount(amountArg, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			amount, err := sdk.ParseCoinNormalized(amountStr)
 			if err != nil {
 				return err
 			}
@@ -169,7 +187,14 @@ func NewBurnCmd() *cobra.Command {
 			}
 			txf = txf.WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
-			amount, err := sdk.ParseCoinNormalized(args[0])
+			amountArg := args[0]
+			// Validate and convert the amount format
+			amountStr, err := resolveAmount(amountArg, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			amount, err := sdk.ParseCoinNormalized(amountStr)
 			if err != nil {
 				return err
 			}
@@ -210,7 +235,14 @@ func NewBurnFromCmd() *cobra.Command {
 				return err
 			}
 
-			amount, err := sdk.ParseCoinNormalized(args[1])
+			amountArg := args[1]
+			// Validate and convert the amount format
+			amountStr, err := resolveAmount(amountArg, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			amount, err := sdk.ParseCoinNormalized(amountStr)
 			if err != nil {
 				return err
 			}
@@ -247,7 +279,14 @@ func NewForceTransferCmd() *cobra.Command {
 			}
 			txf = txf.WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
-			amount, err := sdk.ParseCoinNormalized(args[0])
+			amountArg := args[0]
+			// Validate and convert the amount format
+			amountStr, err := resolveAmount(amountArg, clientCtx)
+			if err != nil {
+				return err
+			}
+
+			amount, err := sdk.ParseCoinNormalized(amountStr)
 			if err != nil {
 				return err
 			}
@@ -364,4 +403,36 @@ func NewModifyDenomMetadataCmd() *cobra.Command {
 
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
+}
+
+func resolveAmount(input string, clientCtx client.Context) (string, error) {
+	// Check if a short amount format is provided
+	if isShortAmountFormat(input) {
+		amount, denom, err := splitAmountAndDenom(input)
+		if err != nil {
+			return "", err
+		}
+		// Get the sender's address
+		senderAddress := clientCtx.GetFromAddress().String()
+		// Generate the full amount format
+		return fmt.Sprintf("%sfactory/%s/%s", amount, senderAddress, denom), nil
+	}
+	// Otherwise, return the input value unchanged
+	return input, nil
+}
+
+func isShortAmountFormat(input string) bool {
+	return shortAmountRegex.MatchString(input)
+}
+
+func splitAmountAndDenom(input string) (string, string, error) {
+	// Find the first non-numeric character that separates the amount and the token name
+	for i, char := range input {
+		if char < '0' || char > '9' {
+			// Return the amount (up to the first non-numeric character) and the token name
+			return input[:i], input[i:], nil
+		}
+	}
+	// If no token name is found, return an error
+	return "", "", fmt.Errorf("invalid input: %s. Must be in the format '1000mytoken'", input)
 }
